@@ -3,6 +3,8 @@ import socket
 import sys
 import platform
 import subprocess
+import re
+import ipaddress
 
 def send_wol_packet(ip_address, mac_address):
     # Create magic packet
@@ -39,32 +41,67 @@ def ping_ip(ip_address, timeout=1):
     except subprocess.CalledProcessError:
         return -1  # Ping failed, indicating timeout
 
+def calculate_network(ip_address, netmask):
+    try:
+        # Create an IPv4 network with the provided IP address and netmask
+        network = ipaddress.IPv4Network(f'{ip_address}/{netmask}', strict=False)
+
+        # Get the network address and broadcast address
+        network_address = network.network_address
+        broadcast_address = network.broadcast_address
+
+        return network_address, broadcast_address
+
+    except ValueError as e:
+        return str(e)
+    
+
 try:
     if len(sys.argv) == 4:
         ip = sys.argv[1]
-        broadcast = sys.argv[2]
+        netmask = sys.argv[2]
         mac = sys.argv[3]
+        
+        macOK = re.fullmatch(r'^([A-F0-9]{2}(([:][A-F0-9]{2}){5}|([-][A-F0-9]{2}){5})|([\s][A-F0-9]{2}){5})|([a-f0-9]{2}(([:][a-f0-9]{2}){5}|([-][a-f0-9]{2}){5}|([\s][a-f0-9]{2}){5}))$', mac)
+        ipOK = re.fullmatch(r'^(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$',ip)
+        netmaskOK = re.fullmatch(r'^(0|[1-9]|[12]\d|3[0-2])$',netmask)
 
-        print(f"-------------------------------------")
-        print(f"Target IP address: {ip}")
-        print(f"Broadcast address: {broadcast}")
-        print(f"Target MAC address: {mac}")
-        print(f"-------------------------------------")
+        if macOK and ipOK and netmaskOK:
+            network, broadcast = calculate_network(ip, netmask)
+            print(f"-------------------------------------")
+            print(f"Network address: {network}")
+            print(f"IP address: {ip}")
+            print(f"Broadcast address: {broadcast}")
+            print(f"MAC address: {mac}")
+            print(f"-------------------------------------")
 
-        rtt = -1
+            rtt = -1
+            cnt = 0
+            while rtt == -1:
+                send_wol_packet(str(broadcast), mac)
 
-        while rtt == -1:
-            send_wol_packet(broadcast, mac)
+                rtt = ping_ip(ip, 2)
+                cnt+=1
 
-            rtt = ping_ip(ip, 2)
+                if rtt == -1:
+                    print(f"Ping {ip}: ({cnt}) Timeout", end='\r')
+                else:
+                    print(f"Ping {ip}: {rtt} ms       ")
+        else:
+            print(f"")
+            print(f"MAC format: AA:BB:CC:DD:EE:FF")
+            print(f"IP format: A.B.C.D")
+            print(f"Netmask format: A")
+            print(f"")
+            raise ValueError('Incorrect parameters')
 
-            if rtt == -1:
-                print(f"Ping {ip}: Timeout {rtt}")
-            else:
-                print(f"Ping {ip}: {rtt} ms")
+
 
     else:
-        print(f"wol.py ip broadcast mac")
+        print(f"Usage")
+        print(f"wol.py IP Netmask MAC")
+        print(f"wol.py A.B.C.D E FF:GG:HH:II:JJ:KK")
+        
 except KeyboardInterrupt:
     print(f"Aborted")
     pass
